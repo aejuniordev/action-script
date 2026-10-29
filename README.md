@@ -29,6 +29,7 @@ The plugin adds these actions to Yaak's menus:
 | Request | **Send with Scripts** | Run the pre-request script, send, run the post-response script, and show the results |
 | Folder | **Run with Scripts** | Do the same for every request in the folder (and subfolders), in sidebar order |
 | Workspace | **Script Variables** | View and edit the script variables as JSON |
+| Workspace | **Stop Scripts** | Stop every script run still going |
 
 Yaak's regular **Send** does not run scripts; use **Send with Scripts**.
 
@@ -129,6 +130,9 @@ yk.sendRequest("https://api.example.com/ping", (err, res) => console.log(res.cod
 
 // Render a Yaak template against the active environment
 const base = await yk.render("${[ baseUrl ]}");
+
+// Wait between steps
+await yk.sleep(2000);
 ```
 
 Also available: `yk.info` (`eventName`, `requestId`, `requestName`), `console.log/info/warn/error/debug`, `crypto`, `atob`, `btoa`, `URL`, `URLSearchParams`, `TextEncoder`, `TextDecoder`.
@@ -136,7 +140,21 @@ Also available: `yk.info` (`eventName`, `requestId`, `requestName`), `console.lo
 ### Limits
 
 - 1 s of synchronous code without yielding. This is the limit an infinite loop hits.
-- 30 s in total, including time spent in `await`.
+- 30 s in total, including time spent in `await`. A script can change this with `yk.timeout(ms)`, counted from its start; `yk.timeout(0)` removes the limit. A script with no limit runs until it ends or you use **Stop Scripts**.
+
+A script that times out or is stopped goes no further than its next `yk.sleep`, and any `yk.sendRequest` it makes after that fails.
+
+```js
+// Poll every 5 s for up to 10 minutes
+yk.timeout(10 * 60_000);
+while ((await yk.sendRequest("https://api.example.com/job/1")).json().state !== "done") {
+  await yk.sleep(5000);
+}
+```
+
+## Examples
+
+- [`examples/uptime-monitor.js`](examples/uptime-monitor.js): after a request is sent, checks it again every few seconds and reports latency (min, average, p95, max) and failures, with tests for both
 
 ## Caveats
 

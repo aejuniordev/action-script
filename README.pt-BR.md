@@ -29,6 +29,7 @@ O plugin adiciona estas ações aos menus do Yaak:
 | Request | **Send with Scripts** | Roda o pré-request, envia, roda o pós-response e mostra o resultado |
 | Pasta | **Run with Scripts** | Faz o mesmo com cada request da pasta (e subpastas), na ordem da sidebar |
 | Workspace | **Script Variables** | Mostra e edita as variáveis dos scripts como JSON |
+| Workspace | **Stop Scripts** | Para todos os scripts que ainda estão rodando |
 
 O **Send** normal do Yaak não roda os scripts; use **Send with Scripts**.
 
@@ -129,6 +130,9 @@ yk.sendRequest("https://api.example.com/ping", (err, res) => console.log(res.cod
 
 // Renderiza um template do Yaak no environment ativo
 const base = await yk.render("${[ baseUrl ]}");
+
+// Espera entre um passo e outro
+await yk.sleep(2000);
 ```
 
 Também disponíveis: `yk.info` (`eventName`, `requestId`, `requestName`), `console.log/info/warn/error/debug`, `crypto`, `atob`, `btoa`, `URL`, `URLSearchParams`, `TextEncoder`, `TextDecoder`.
@@ -136,7 +140,21 @@ Também disponíveis: `yk.info` (`eventName`, `requestId`, `requestName`), `cons
 ### Limites
 
 - 1 s de código síncrono sem devolver o controle. É esse limite que interrompe um loop infinito.
-- 30 s no total, contando o tempo gasto em `await`.
+- 30 s no total, contando o tempo gasto em `await`. O script pode mudar isso com `yk.timeout(ms)`, contado a partir do início dele; `yk.timeout(0)` tira o limite. Um script sem limite roda até terminar ou até você usar **Stop Scripts**.
+
+Um script que estoura o tempo ou é parado não passa do próximo `yk.sleep`, e qualquer `yk.sendRequest` que ele fizer depois disso falha.
+
+```js
+// Consulta a cada 5 s, por até 10 minutos
+yk.timeout(10 * 60_000);
+while ((await yk.sendRequest("https://api.example.com/job/1")).json().state !== "done") {
+  await yk.sleep(5000);
+}
+```
+
+## Exemplos
+
+- [`examples/uptime-monitor.js`](examples/uptime-monitor.js): depois que o request é enviado, repete a checagem a cada poucos segundos e mostra latência (mínima, média, p95, máxima) e falhas, com testes para as duas (comentários em inglês)
 
 ## Avisos
 
