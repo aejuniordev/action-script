@@ -1,4 +1,11 @@
-import type { Context, Folder, HttpRequest, PluginDefinition, SentHttpRequest } from "@yaakapp/api";
+import type {
+  Context,
+  Folder,
+  HttpRequest,
+  JsonPrimitive,
+  PluginDefinition,
+  SentHttpRequest,
+} from "@yaakapp/api";
 import {
   applyVarsToRequest,
   errorMessage,
@@ -140,8 +147,8 @@ export const plugin: PluginDefinition = {
         });
         if (values == null) return;
 
-        const pre = String(values.pre ?? "");
-        const post = String(values.post ?? "");
+        const pre = formValue(values, "pre", existing?.pre ?? "");
+        const post = formValue(values, "post", existing?.post ?? "");
         if (pre.trim() === "" && post.trim() === "") {
           await ctx.store.delete(scriptKey(httpRequest.id));
         } else {
@@ -203,7 +210,7 @@ export const plugin: PluginDefinition = {
 
         let next: unknown;
         try {
-          next = JSON.parse(String(values.vars ?? "") || "{}");
+          next = JSON.parse(formValue(values, "vars", JSON.stringify(vars)) || "{}");
         } catch (err) {
           await ctx.toast.show({ message: `Invalid JSON: ${errorMessage(err)}`, color: "danger" });
           return;
@@ -443,6 +450,19 @@ function summarize(runs: RequestRun[]): string {
   if (tests.length > 0) parts.push(`${passed}/${tests.length} tests passed`);
   if (failed > 0) parts.push(`${failed} failed`);
   return parts.join(" · ");
+}
+
+/**
+ * A form input's value. Yaak leaves out inputs that were never edited, so a
+ * missing one keeps `unchanged` rather than becoming empty.
+ */
+function formValue(
+  values: Record<string, JsonPrimitive | undefined>,
+  name: string,
+  unchanged: string,
+): string {
+  const value = values[name];
+  return value == null ? unchanged : String(value);
 }
 
 function requestName(request: HttpRequest): string {
