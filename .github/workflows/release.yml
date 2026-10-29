@@ -1,0 +1,48 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Check tag matches package.json version
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${version}" >&2
+            exit 1
+          fi
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: Package plugin
+        id: package
+        run: |
+          name="$(node -p 'require("./package.json").name')"
+          archive="${name}-${GITHUB_REF_NAME}.zip"
+          mkdir -p "dist/${name}"
+          cp -r package.json LICENSE build "dist/${name}/"
+          (cd dist && zip -r "../${archive}" "${name}")
+          echo "archive=${archive}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" "${{ steps.package.outputs.archive }}" --title "${GITHUB_REF_NAME}" --generate-notes
