@@ -29,13 +29,13 @@ The plugin adds these actions to Yaak's menus:
 | Request | **Send with Scripts** | Run the pre-request script, send, run the post-response script, and show the results |
 | Folder | **Run with Scripts** | Do the same for every request in the folder (and subfolders), in sidebar order |
 | Workspace | **Script Variables** | View and edit the script variables as JSON |
-| Workspace | **Stop Scripts** | Stop every script run still going |
+| Request, folder, workspace | **Stop Scripts** | Stop every script run still going |
 
 Yaak's regular **Send** does not run scripts; use **Send with Scripts**.
 
 If the pre-request script fails, the request is not sent. The pre-request script edits a copy of the request, so the saved request is left unchanged.
 
-When there are logs, errors, or failing tests, a report opens; otherwise a toast shows the status.
+When there are logs, errors, or failing tests, a report opens; otherwise a toast shows the status. A run still going after 3 s shows a toast saying how to stop it.
 
 ### Variables
 

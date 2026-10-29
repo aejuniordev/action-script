@@ -29,13 +29,13 @@ O plugin adiciona estas ações aos menus do Yaak:
 | Request | **Send with Scripts** | Roda o pré-request, envia, roda o pós-response e mostra o resultado |
 | Pasta | **Run with Scripts** | Faz o mesmo com cada request da pasta (e subpastas), na ordem da sidebar |
 | Workspace | **Script Variables** | Mostra e edita as variáveis dos scripts como JSON |
-| Workspace | **Stop Scripts** | Para todos os scripts que ainda estão rodando |
+| Request, pasta, workspace | **Stop Scripts** | Para todos os scripts que ainda estão rodando |
 
 O **Send** normal do Yaak não roda os scripts; use **Send with Scripts**.
 
 Se o pré-request falhar, o request não é enviado. O pré-request altera uma cópia do request, então o request salvo não muda.
 
-Quando há logs, erros ou testes falhando, abre um relatório; se não, aparece só um toast com o status.
+Quando há logs, erros ou testes falhando, abre um relatório; se não, aparece só um toast com o status. Se a execução passar de 3 s, um toast avisa como pará-la.
 
 ### Variáveis
 

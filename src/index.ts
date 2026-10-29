@@ -57,13 +57,31 @@ A script variable replaces \`\${[ name ]}\` in requests sent with a script, and
 \`console.log\`, \`crypto\`, \`atob\` / \`btoa\`, \`URL\`. Top-level \`await\` works.
 `.trim();
 
+// How long a run goes before a toast says how to stop it
+const STILL_RUNNING_MS = 3_000;
+
+const stopAction = {
+  label: "Stop Scripts",
+  async onSelect(ctx: Context) {
+    const count = running.size;
+    for (const controller of running) controller.abort();
+    await ctx.toast.show({
+      message: count === 0 ? "No scripts running" : `Stopped ${count} script run(s)`,
+      color: "info",
+      icon: "info",
+    });
+  },
+} as const;
+
 export const plugin: PluginDefinition = {
   httpRequestActions: [
     {
       label: "Send with Scripts",
       async onSelect(ctx, { httpRequest }) {
         const vars = await loadVars(ctx, httpRequest.workspaceId);
-        const run = await whileRunning((signal) => runRequest(ctx, httpRequest, vars, signal));
+        const run = await whileRunning(ctx, requestName(httpRequest), (signal) =>
+          runRequest(ctx, httpRequest, vars, signal),
+        );
         await saveVars(ctx, httpRequest.workspaceId, vars);
 
         // Output worth reading gets the report; otherwise a toast is enough
@@ -132,6 +150,8 @@ export const plugin: PluginDefinition = {
         await ctx.toast.show({ message: "Scripts saved", color: "success", icon: "check" });
       },
     },
+    // Also here and on folders, next to where a run starts, not only on the workspace
+    stopAction,
   ],
   folderActions: [
     {
@@ -146,7 +166,7 @@ export const plugin: PluginDefinition = {
         // One set of variables for the whole run, so a request can hand values to the next
         const vars = await loadVars(ctx, folder.workspaceId);
         const runs: RequestRun[] = [];
-        await whileRunning(async (signal) => {
+        await whileRunning(ctx, folder.name, async (signal) => {
           for (const request of requests) {
             if (signal.aborted) break;
             runs.push(await runRequest(ctx, request, vars, signal));
@@ -156,20 +176,10 @@ export const plugin: PluginDefinition = {
         await showReport(ctx, `Run: ${folder.name}`, runs);
       },
     },
+    stopAction,
   ],
   workspaceActions: [
-    {
-      label: "Stop Scripts",
-      async onSelect(ctx) {
-        const count = running.size;
-        for (const controller of running) controller.abort();
-        await ctx.toast.show({
-          message: count === 0 ? "No scripts running" : `Stopped ${count} script run(s)`,
-          color: "info",
-          icon: "info",
-        });
-      },
-    },
+    stopAction,
     {
       label: "Script Variables",
       async onSelect(ctx, { workspace }) {
@@ -223,12 +233,28 @@ export const plugin: PluginDefinition = {
   ],
 };
 
-async function whileRunning<T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+/** Run `fn` where "Stop Scripts" can reach it, saying how to stop it if it runs long. */
+async function whileRunning<T>(
+  ctx: Context,
+  name: string,
+  fn: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
   const controller = new AbortController();
   running.add(controller);
+  const notice = setTimeout(() => {
+    ctx.toast
+      .show({
+        message: `Scripts for ${name} are still running. To end them, use Stop Scripts in the request, folder, or workspace menu.`,
+        color: "info",
+        icon: "info",
+        timeout: 10_000,
+      })
+      .catch(() => {});
+  }, STILL_RUNNING_MS);
   try {
     return await fn(controller.signal);
   } finally {
+    clearTimeout(notice);
     running.delete(controller);
   }
 }
