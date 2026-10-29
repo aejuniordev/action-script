@@ -12,7 +12,10 @@
     "build": "yaakcli build",
     "dev": "yaakcli dev",
     "typecheck": "tsc --noEmit",
-    "test": "vitest --run tests"
+    "test": "vitest --run tests",
+    "release": "npm version -m \"chore: release v%s\"",
+    "preversion": "test \"$(git branch --show-current)\" = master && npm run typecheck && npm test",
+    "postversion": "git push origin master \"v$npm_package_version\""
   },
   "dependencies": {
     "@yaakapp/api": "^0.9.0"

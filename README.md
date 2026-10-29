@@ -185,14 +185,17 @@ Code:
 
 ## Release
 
-Pushing a `v*` tag runs `.github/workflows/release.yml`, which type-checks, tests, builds, and publishes a release with the plugin zip. The tag must match `version` in `package.json`:
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which type-checks, tests, builds, and publishes a release with the plugin zip. The tag must match `version` in `package.json`.
+
+`npm run release` does all of it, from a clean `master`:
 
 ```sh
-npm version 0.2.0 --no-git-tag-version
-git commit -am "chore: release v0.2.0"
-git tag v0.2.0
-git push origin master v0.2.0
+npm run release -- patch   # 0.4.0 -> 0.4.1
+npm run release -- minor   # 0.4.0 -> 0.5.0
+npm run release -- 1.0.0   # an exact version
 ```
+
+It type-checks and tests, bumps `version` in `package.json` and `package-lock.json`, commits `chore: release vX.Y.Z`, tags `vX.Y.Z`, and pushes both. It stops before changing anything if you are on another branch, have uncommitted changes, or a check fails.
 
 ## License
 

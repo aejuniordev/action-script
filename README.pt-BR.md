@@ -185,14 +185,17 @@ Código:
 
 ## Release
 
-O push de uma tag `v*` dispara `.github/workflows/release.yml`, que roda typecheck, testes e build e publica uma release com o zip do plugin. A tag precisa bater com o `version` do `package.json`:
+O push de uma tag `v*` dispara `.github/workflows/release.yml`, que roda typecheck, testes e build e publica uma release com o zip do plugin. A tag precisa bater com o `version` do `package.json`.
+
+`npm run release` faz tudo, a partir do `master` sem alterações pendentes:
 
 ```sh
-npm version 0.2.0 --no-git-tag-version
-git commit -am "chore: release v0.2.0"
-git tag v0.2.0
-git push origin master v0.2.0
+npm run release -- patch   # 0.4.0 -> 0.4.1
+npm run release -- minor   # 0.4.0 -> 0.5.0
+npm run release -- 1.0.0   # versão exata
 ```
+
+Ele roda typecheck e testes, atualiza o `version` no `package.json` e no `package-lock.json`, faz o commit `chore: release vX.Y.Z`, cria a tag `vX.Y.Z` e envia os dois. Para antes de mudar qualquer coisa se você estiver em outra branch, tiver alterações sem commit ou alguma checagem falhar.
 
 ## Licença
 
