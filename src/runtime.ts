@@ -45,8 +45,20 @@ export interface RunScriptArgs {
   host: ScriptHost;
   /** How long the script may run without yielding, in milliseconds. */
   syncTimeout?: number;
-  /** How long the script may take, awaited work included, in milliseconds. */
+  /**
+   * How long the script may take, awaited work included, in milliseconds. The
+   * script can change it with `yk.timeout(ms)`.
+   */
   timeout?: number;
+  /** Stops the script when aborted. */
+  signal?: AbortSignal;
+}
+
+/** What the script's `yk` uses to wait and to change its own limits. */
+interface RunControl {
+  sleep(ms: number): Promise<void>;
+  setTimeout(ms: number): void;
+  readonly finished: boolean;
 }
 
 const DEFAULT_SYNC_TIMEOUT = 1_000;
@@ -83,7 +95,50 @@ function compile(source: string): vm.Script {
 export async function runScript(args: RunScriptArgs): Promise<ScriptRun> {
   const run: ScriptRun = { tests: [], logs: [], error: null };
   const pending: Promise<unknown>[] = [];
-  const yk = createYk(args, run, pending);
+
+  const start = Date.now();
+  let limit = args.timeout ?? DEFAULT_TIMEOUT;
+  let finished = false;
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  let fail: (err: Error) => void = () => {};
+  const stopped = new Promise<never>((_, reject) => {
+    fail = reject;
+  });
+  const armDeadline = () => {
+    clearTimeout(deadlineTimer);
+    if (limit <= 0) return;
+    deadlineTimer = setTimeout(
+      () => fail(new Error(`Script timed out after ${limit}ms`)),
+      Math.max(0, start + limit - Date.now()),
+    );
+  };
+  const onAbort = () => fail(new Error("Script stopped"));
+
+  // Sleeps still waiting when the script ends never resolve, so a script that
+  // timed out or was stopped goes no further than its next sleep
+  const sleeps = new Set<ReturnType<typeof setTimeout>>();
+  const control: RunControl = {
+    sleep: (ms) =>
+      new Promise<void>((resolve) => {
+        if (finished) return;
+        const timer = setTimeout(
+          () => {
+            sleeps.delete(timer);
+            resolve();
+          },
+          Math.max(0, Number(ms) || 0),
+        );
+        sleeps.add(timer);
+      }),
+    setTimeout(ms) {
+      limit = Math.max(0, Number(ms) || 0);
+      armDeadline();
+    },
+    get finished() {
+      return finished;
+    },
+  };
+  const yk = createYk(args, run, pending, control);
 
   const log =
     (prefix: string) =>
@@ -108,11 +163,9 @@ export async function runScript(args: RunScriptArgs): Promise<ScriptRun> {
     TextDecoder,
   });
 
-  const timeout = args.timeout ?? DEFAULT_TIMEOUT;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`Script timed out after ${timeout}ms`)), timeout);
-  });
+  armDeadline();
+  if (args.signal?.aborted) onAbort();
+  args.signal?.addEventListener("abort", onAbort);
 
   try {
     await Promise.race([
@@ -126,18 +179,27 @@ export async function runScript(args: RunScriptArgs): Promise<ScriptRun> {
           await Promise.all(pending.splice(0));
         }
       })(),
-      deadline,
+      stopped,
     ]);
   } catch (err) {
     run.error = errorMessage(err);
   } finally {
-    clearTimeout(timer);
+    finished = true;
+    clearTimeout(deadlineTimer);
+    for (const timer of sleeps) clearTimeout(timer);
+    sleeps.clear();
+    args.signal?.removeEventListener("abort", onAbort);
   }
 
   return run;
 }
 
-function createYk(args: RunScriptArgs, run: ScriptRun, pending: Promise<unknown>[]) {
+function createYk(
+  args: RunScriptArgs,
+  run: ScriptRun,
+  pending: Promise<unknown>[],
+  control: RunControl,
+) {
   const { request, response, vars, host } = args;
 
   const variables = {
@@ -189,9 +251,13 @@ function createYk(args: RunScriptArgs, run: ScriptRun, pending: Promise<unknown>
       options: string | SendRequestOptions,
       callback?: (err: unknown, res: ReturnType<typeof responseView> | undefined) => unknown,
     ) {
-      const sent = host
-        .send(applyVarsToRequest(toYaakRequest(options), vars))
-        .then((r) => responseView(r));
+      // A script that timed out or was stopped can still be running; it must
+      // not keep sending
+      const sent = control.finished
+        ? Promise.reject(new Error("Script already finished"))
+        : host
+            .send(applyVarsToRequest(toYaakRequest(options), vars))
+            .then((r) => responseView(r));
       if (callback == null) {
         pending.push(sent.catch(() => {}));
         return sent;
@@ -206,6 +272,10 @@ function createYk(args: RunScriptArgs, run: ScriptRun, pending: Promise<unknown>
     },
     /** Render a template, like `${[ baseUrl ]}`, against the active environment. */
     render: (template: string) => host.render(String(template)),
+    /** Wait, without holding up anything else. */
+    sleep: (ms: number) => control.sleep(ms),
+    /** Change how long the script may take, counted from its start. 0 means no limit. */
+    timeout: (ms: number) => control.setTimeout(ms),
   };
 }
 

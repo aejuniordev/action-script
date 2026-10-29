@@ -26,6 +26,9 @@ interface RequestRun {
 
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
 
+// Runs still going, so "Stop Scripts" can end them
+const running = new Set<AbortController>();
+
 const scriptKey = (requestId: string) => `script.${requestId}`;
 const varsKey = (workspaceId: string) => `vars.${workspaceId}`;
 
@@ -50,6 +53,7 @@ A script variable replaces \`\${[ name ]}\` in requests sent with a script, and
 
 **Other**
 \`await yk.sendRequest(urlOrOptions)\` (or with a callback), \`await yk.render("\${[ baseUrl ]}")\`,
+\`await yk.sleep(ms)\`, \`yk.timeout(ms)\` (default 30 s, \`0\` for no limit; end a run with **Stop Scripts**),
 \`console.log\`, \`crypto\`, \`atob\` / \`btoa\`, \`URL\`. Top-level \`await\` works.
 `.trim();
 
@@ -59,7 +63,7 @@ export const plugin: PluginDefinition = {
       label: "Send with Scripts",
       async onSelect(ctx, { httpRequest }) {
         const vars = await loadVars(ctx, httpRequest.workspaceId);
-        const run = await runRequest(ctx, httpRequest, vars);
+        const run = await whileRunning((signal) => runRequest(ctx, httpRequest, vars, signal));
         await saveVars(ctx, httpRequest.workspaceId, vars);
 
         // Output worth reading gets the report; otherwise a toast is enough
@@ -142,15 +146,30 @@ export const plugin: PluginDefinition = {
         // One set of variables for the whole run, so a request can hand values to the next
         const vars = await loadVars(ctx, folder.workspaceId);
         const runs: RequestRun[] = [];
-        for (const request of requests) {
-          runs.push(await runRequest(ctx, request, vars));
-        }
+        await whileRunning(async (signal) => {
+          for (const request of requests) {
+            if (signal.aborted) break;
+            runs.push(await runRequest(ctx, request, vars, signal));
+          }
+        });
         await saveVars(ctx, folder.workspaceId, vars);
         await showReport(ctx, `Run: ${folder.name}`, runs);
       },
     },
   ],
   workspaceActions: [
+    {
+      label: "Stop Scripts",
+      async onSelect(ctx) {
+        const count = running.size;
+        for (const controller of running) controller.abort();
+        await ctx.toast.show({
+          message: count === 0 ? "No scripts running" : `Stopped ${count} script run(s)`,
+          color: "info",
+          icon: "info",
+        });
+      },
+    },
     {
       label: "Script Variables",
       async onSelect(ctx, { workspace }) {
@@ -204,10 +223,21 @@ export const plugin: PluginDefinition = {
   ],
 };
 
+async function whileRunning<T>(fn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  running.add(controller);
+  try {
+    return await fn(controller.signal);
+  } finally {
+    running.delete(controller);
+  }
+}
+
 async function runRequest(
   ctx: Context,
   request: HttpRequest,
   vars: ScriptVars,
+  signal: AbortSignal,
 ): Promise<RequestRun> {
   const run: RequestRun = {
     name: requestName(request),
@@ -229,6 +259,7 @@ async function runRequest(
       request: toSend,
       vars,
       host,
+      signal,
     });
     if (run.pre.error != null) {
       run.error = "Not sent: the pre-request script failed";
@@ -259,6 +290,7 @@ async function runRequest(
       response,
       vars,
       host,
+      signal,
     });
   }
   return run;

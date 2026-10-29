@@ -69,6 +69,8 @@ async function run(
     response?: ScriptResponse;
     vars?: ScriptVars;
     host?: ScriptHost;
+    timeout?: number;
+    signal?: AbortSignal;
   } = {},
 ) {
   const request = options.request ?? makeRequest();
@@ -81,7 +83,8 @@ async function run(
     vars,
     host: options.host ?? makeHost(),
     syncTimeout: 100,
-    timeout: 1_000,
+    timeout: options.timeout ?? 1_000,
+    signal: options.signal,
   });
   return { result, request, vars };
 }
@@ -263,6 +266,63 @@ describe("limits", () => {
   test("reports syntax errors", async () => {
     const { result } = await run(`yk.test(`);
     expect(result.error).toMatch(/Unexpected/);
+  });
+
+  test("sleep waits without counting against the sync limit", async () => {
+    const started = Date.now();
+    const { result } = await run(`await yk.sleep(150); console.log("done")`);
+    expect(result.error).toBeNull();
+    expect(result.logs).toEqual(["done"]);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(140);
+  });
+
+  test("a script can extend its own timeout", async () => {
+    const { result } = await run(`yk.timeout(500); await yk.sleep(200)`, { timeout: 100 });
+    expect(result.error).toBeNull();
+  });
+
+  test("a script can lift its timeout", async () => {
+    const { result } = await run(`yk.timeout(0); await yk.sleep(200)`, { timeout: 100 });
+    expect(result.error).toBeNull();
+  });
+
+  test("a script can shorten its timeout", async () => {
+    const { result } = await run(`yk.timeout(50); await yk.sleep(500)`);
+    expect(result.error).toBe("Script timed out after 50ms");
+  });
+
+  test("an abort stops the script, and it sends nothing more", async () => {
+    const sent: Partial<HttpRequest>[] = [];
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 120);
+    const { result } = await run(
+      `while (true) { await yk.sendRequest("https://api.example.com/tick"); await yk.sleep(50); }`,
+      { host: makeHost(sent), signal: controller.signal, timeout: 0 },
+    );
+    expect(result.error).toBe("Script stopped");
+    const count = sent.length;
+    expect(count).toBeGreaterThan(0);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(sent.length).toBe(count);
+  });
+
+  test("a timed-out script sends nothing more", async () => {
+    const sent: Partial<HttpRequest>[] = [];
+    const { result } = await run(
+      `while (true) { await yk.sendRequest("https://api.example.com/tick"); await yk.sleep(30); }`,
+      { host: makeHost(sent), timeout: 100 },
+    );
+    expect(result.error).toMatch(/timed out/);
+    const count = sent.length;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(sent.length).toBe(count);
+  });
+
+  test("an already aborted signal stops the script before it starts waiting", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const { result } = await run(`await yk.sleep(10)`, { signal: controller.signal });
+    expect(result.error).toBe("Script stopped");
   });
 
   test("does not leak globals between runs", async () => {
