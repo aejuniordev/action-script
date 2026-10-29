@@ -1,7 +1,7 @@
 {
   "name": "yaak-plugin-script",
   "displayName": "Scripts",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Postman-style pre-request and post-response scripts",
   "license": "MIT",
